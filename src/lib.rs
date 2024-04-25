@@ -29,6 +29,15 @@ impl Val {
 
 /*** Operator Overloads ***/
 
+impl ops::Neg for Val {
+    type Output = Val;
+    fn neg(mut self) -> Val {
+        self.data = -self.data;
+
+        return self;
+    }
+}
+
 impl ops::Add for Val {
     type Output = Val;
     fn add(self, rhs: Self) -> Val {
@@ -89,7 +98,7 @@ impl fmt::Display for Val {
 
 
 #[cfg(test)]
-mod tests {
+mod val_ops {
     use super::*;
     // Helper function for floating point arithmetic
     fn approx_eq(a: f64, b: f64) -> bool {
@@ -103,6 +112,23 @@ mod tests {
         assert_eq!(v.grad, 0.0);
         assert_eq!(v.prev.len(), 0);
         assert_eq!(v.op, None);
+    }
+
+    #[test]
+    fn neg() {
+        {
+            let v1: Val = Val::new(10.0);
+            let result: Val = -v1;
+
+            assert_eq!(result.data, -10.0);
+        }
+
+        {
+            let v1: Val = Val::new(-30.3);
+            let result: Val = -v1;
+
+            assert_eq!(result.data, 30.3);
+        }
     }
 
     #[test]
