@@ -30,12 +30,19 @@ impl Val {
         self.op = op;
     }
 
+    fn set_backward<F>(&mut self, func: F)
+    where F: Fn() + 'static,
+    {
+        self.backward = Some(Box::new(func));
+    }
+
     fn tanh(self) -> Val {
         let x: f64 = self.data;
         let t: f64 = ((2.0 * x).exp() - 1.0) / ((2.0 * x).exp() + 1.0);
         let mut result: Val = Val::new(t);
 
         result.prev.push(self);
+        result.grad = 1.0;
         result.set_op(Operations::Tanh);
 
         return result;
@@ -57,15 +64,16 @@ impl ops::Neg for Val {
 
 impl ops::Add for Val {
     type Output = Val;
-    fn add(mut self, rhs: Self) -> Val {
+    fn add(mut self, mut rhs: Self) -> Val {
         let mut result: Val = Val::new(self.data + rhs.data);
         result.prev.push(self);
         result.prev.push(rhs);
         result.set_op(Operations::Add);
 
-        // let b = || {
-
-        // }
+        self.set_backward::<Fn()>(|| {
+            self.grad = result.grad;
+            rhs.grad  = result.grad;
+        });
 
         return result;
     }
@@ -501,6 +509,102 @@ mod val_ops {
             assert_eq!(o.prev.len(), 1);
             assert!(approx_eq(o.prev[0].data, 0.7));
             assert_eq!(o.op, Operations::Tanh);
+        }
+
+        {
+            let x1: Val = Val::new(2.0);
+            let x2: Val = Val::new(0.0);
+
+            let w1: Val = Val::new(-3.0);
+            let w2: Val = Val::new(1.0);
+
+            let b: Val  = Val::new(8.0);
+
+            let x1w1: Val = x1 * w1;
+            assert_eq!(x1w1.data, -6.0);
+            assert_eq!(x1w1.prev[0].data, 2.0);
+            assert_eq!(x1w1.prev[1].data, -3.0);
+            assert_eq!(x1w1.op, Operations::Mul);
+
+            let x2w2: Val = x2 * w2;
+            assert_eq!(x2w2.data, 0.0);
+            assert_eq!(x2w2.prev[0].data, 0.0);
+            assert_eq!(x2w2.prev[1].data, 1.0);
+            assert_eq!(x2w2.op, Operations::Mul);
+
+            let x1w1x2w2: Val = x1w1 + x2w2;
+            assert_eq!(x1w1x2w2.data, -6.0);
+            assert_eq!(x1w1x2w2.prev[0].data, -6.0);
+            assert_eq!(x1w1x2w2.prev[1].data, 0.0);
+            assert_eq!(x1w1x2w2.op, Operations::Add);
+
+            let n: Val = x1w1x2w2 + b;
+            assert!(approx_eq(n.data, 2.0));
+            assert_eq!(n.prev[0].data, -6.0);
+            assert_eq!(n.prev[1].data, 8.0);
+            assert_eq!(n.op, Operations::Add);
+
+            let o: Val = n.tanh();
+            assert!(approx_eq(o.data, 0.9640275800758169));
+            assert_eq!(o.prev.len(), 1);
+            assert!(approx_eq(o.prev[0].data, 2.0));
+            assert_eq!(o.op, Operations::Tanh);
+        }
+    }
+
+    #[test]
+    fn prp() {
+        {
+            let x1: Val = Val::new(2.0);
+            let x2: Val = Val::new(0.0);
+
+            let w1: Val = Val::new(-3.0);
+            let w2: Val = Val::new(1.0);
+
+            let b: Val  = Val::new(6.8813735870195432);
+
+            let x1w1: Val = x1 * w1;
+            assert_eq!(x1w1.data, -6.0);
+            assert_eq!(x1w1.prev[0].data, 2.0);
+            assert_eq!(x1w1.prev[1].data, -3.0);
+            assert_eq!(x1w1.op, Operations::Mul);
+
+            let x2w2: Val = x2 * w2;
+            assert_eq!(x2w2.data, 0.0);
+            assert_eq!(x2w2.prev[0].data, 0.0);
+            assert_eq!(x2w2.prev[1].data, 1.0);
+            assert_eq!(x2w2.op, Operations::Mul);
+
+            let x1w1x2w2: Val = x1w1 + x2w2;
+            assert_eq!(x1w1x2w2.data, -6.0);
+            assert_eq!(x1w1x2w2.prev[0].data, -6.0);
+            assert_eq!(x1w1x2w2.prev[1].data, 0.0);
+            assert_eq!(x1w1x2w2.op, Operations::Add);
+
+            let n: Val = x1w1x2w2 + b;
+            assert!(approx_eq(n.data, 0.8813735870195432));
+            assert_eq!(n.prev[0].data, -6.0);
+            assert_eq!(n.prev[1].data, 6.8813735870195432);
+            assert_eq!(n.op, Operations::Add);
+
+            let o: Val = n.tanh();
+            assert!(approx_eq(o.data, 0.7071067811865477));
+            assert_eq!(o.grad, 1.0);
+            assert_eq!(o.prev.len(), 1);
+            assert!(approx_eq(o.prev[0].data, 0.8813735870195432));
+            assert_eq!(o.op, Operations::Tanh);
+
+            o.backward();
+
+            assert!(approx_eq(n.grad, 0.5));
+            assert!(approx_eq(x1w1x2w2.grad, 0.5));
+            assert!(approx_eq(b.grad, 0.5));
+            assert!(approx_eq(x1w1.grad, 0.5));
+            assert!(approx_eq(x2w2.grad, 0.5));
+            assert!(approx_eq(x1.grad, -1.5));
+            assert!(approx_eq(w1.grad, 1.0));
+            assert!(approx_eq(x2.grad, 0.5));
+            assert!(approx_eq(w2.grad, 0.0));
         }
     }
 }
