@@ -6,27 +6,39 @@ enum Operations {
     Add,
     Sub,
     Mul,
+    Tanh,
     Non
 }
 
 
-#[derive(Debug, PartialEq)]
+// #[derive(Debug, PartialEq)]
 struct Val {
-    data: f64,
-    grad: f64,
-    res:  f64,
-    prev: Vec<Val>,
-    op:   Operations,
+    data:     f64,
+    grad:     f64,
+    prev:     Vec<Val>,
+    op:       Operations,
+    backward: Option<Box<dyn Fn()>>
 }
 
 
 impl Val {
     fn new(d: f64) -> Val {
-        return Val { data: d, grad: 0.0, res: 0.0, prev: Vec::new(), op: Operations::Non };
+        return Val { data: d, grad: 0.0, prev: Vec::new(), op: Operations::Non, backward: None };
     }
 
     fn set_op(&mut self, op: Operations) {
         self.op = op;
+    }
+
+    fn tanh(self) -> Val {
+        let x: f64 = self.data;
+        let t: f64 = ((2.0 * x).exp() - 1.0) / ((2.0 * x).exp() + 1.0);
+        let mut result: Val = Val::new(t);
+
+        result.prev.push(self);
+        result.set_op(Operations::Tanh);
+
+        return result;
     }
 }
 
@@ -47,10 +59,13 @@ impl ops::Add for Val {
     type Output = Val;
     fn add(mut self, rhs: Self) -> Val {
         let mut result: Val = Val::new(self.data + rhs.data);
-        self.res = result.grad;
         result.prev.push(self);
         result.prev.push(rhs);
         result.set_op(Operations::Add);
+
+        // let b = || {
+
+        // }
 
         return result;
     }
@@ -74,7 +89,6 @@ impl ops::Mul for Val {
     type Output = Val;
     fn mul(mut self, rhs: Self) -> Val {
         let mut result: Val = Val::new(self.data * rhs.data);
-        self.res = result.grad * rhs.data;
         result.prev.push(self);
         result.prev.push(rhs);
         result.set_op(Operations::Mul);
@@ -90,10 +104,11 @@ impl ops::Mul for Val {
 impl fmt::Display for Operations {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Operations::Add => write!(f, "+"),
-            Operations::Sub => write!(f, "-"),
-            Operations::Mul => write!(f, "*"),
-            Operations::Non => write!(f, "Non")
+            Operations::Add  => write!(f, "+"),
+            Operations::Sub  => write!(f, "-"),
+            Operations::Mul  => write!(f, "*"),
+            Operations::Tanh => write!(f, "Tanh"),
+            Operations::Non  => write!(f, "Non")
         }
     }
 }
@@ -101,7 +116,7 @@ impl fmt::Display for Operations {
 
 impl fmt::Display for Val {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return write!(f, "Data: {}, Grad: {}, Prev: {:?}, Op: {}", self.data, self.grad, self.prev, self.op);
+        return write!(f, "Data: {}, Grad: {}, Op: {}", self.data, self.grad, self.op);
     }
 }
 /*** End Displays ***/
@@ -446,6 +461,46 @@ mod val_ops {
             assert_eq!(result.prev[0].data, -526.9637 * 11.9253);
             assert_eq!(result.prev[1].data, 40.0034);
             assert_eq!(result.op, Operations::Add);
+        }
+
+        {
+            let x1: Val = Val::new(2.0);
+            let x2: Val = Val::new(0.0);
+
+            let w1: Val = Val::new(-3.0);
+            let w2: Val = Val::new(1.0);
+
+            let b: Val  = Val::new(6.7);
+
+            let x1w1: Val = x1 * w1;
+            assert_eq!(x1w1.data, -6.0);
+            assert_eq!(x1w1.prev[0].data, 2.0);
+            assert_eq!(x1w1.prev[1].data, -3.0);
+            assert_eq!(x1w1.op, Operations::Mul);
+
+            let x2w2: Val = x2 * w2;
+            assert_eq!(x2w2.data, 0.0);
+            assert_eq!(x2w2.prev[0].data, 0.0);
+            assert_eq!(x2w2.prev[1].data, 1.0);
+            assert_eq!(x2w2.op, Operations::Mul);
+
+            let x1w1x2w2: Val = x1w1 + x2w2;
+            assert_eq!(x1w1x2w2.data, -6.0);
+            assert_eq!(x1w1x2w2.prev[0].data, -6.0);
+            assert_eq!(x1w1x2w2.prev[1].data, 0.0);
+            assert_eq!(x1w1x2w2.op, Operations::Add);
+
+            let n: Val = x1w1x2w2 + b;
+            assert!(approx_eq(n.data, 0.7));
+            assert_eq!(n.prev[0].data, -6.0);
+            assert_eq!(n.prev[1].data, 6.7);
+            assert_eq!(n.op, Operations::Add);
+
+            let o: Val = n.tanh();
+            assert!(approx_eq(o.data, 0.6043677771171636));
+            assert_eq!(o.prev.len(), 1);
+            assert!(approx_eq(o.prev[0].data, 0.7));
+            assert_eq!(o.op, Operations::Tanh);
         }
     }
 }
